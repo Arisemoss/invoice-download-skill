@@ -2,13 +2,15 @@
 name: invoice-download
 description: >
   从国家税务总局电子发票服务平台的二维码交付页面自动下载电子发票PDF文件。
-  处理二维码解码、浏览器拦截下载链接、提取发票元信息等全流程。
+  处理二维码解码、Vue组件方法触发下载、network_requests捕获URL、提取发票元信息等全流程。
   当用户提供包含发票二维码的截图并需要下载PDF发票时使用此技能。
 ---
 
 # 电子发票 PDF 下载 Agent
 
 从国家税务总局电子发票服务平台的二维码交付页面**仅下载电子发票PDF文件**（不下载OFD和XML格式）。
+
+> ⚠️ **本文档基于实战经验优化（2026-08）**：页面 JS 经过混淆，下载按钮由 Vue 组件方法 `openEwmjf` 触发，**拦截 `<a>.click()` 无法捕获 URL**。请严格按照下述"组件方法触发 + network_requests 捕获"流程操作。
 
 ## 触发时机
 
@@ -30,147 +32,129 @@ apt-get install -y libzbar0
 pip install pyzbar opencv-python-headless Pillow requests --break-system-packages
 ```
 
-**QR解码代码：**
+**QR解码：** 使用 `scripts/decode_qrcode.py <图片路径>`，或参考 `scripts/decode_qrcode.py` 中的逻辑（中心裁剪 + Otsu 二值化）。
 
-使用 `scripts/decode_qrcode.py` 脚本或手动执行以下Python代码：
-
-```python
-import cv2
-import numpy as np
-from pyzbar.pyzbar import decode
-from PIL import Image
-
-img = cv2.imread('图片路径')
-h, w = img.shape[:2]
-
-# 裁剪中心区域（二维码通常在中间）
-cx, cy = w // 2, h // 2
-crop_size = min(w, h) // 2
-center = img[cy - crop_size:cy + crop_size, cx - crop_size:cx + crop_size]
-
-# 尝试直接解码
-results = decode(Image.fromarray(cv2.cvtColor(center, cv2.COLOR_BGR2RGB)))
-
-# 若失败，执行Otsu二值化
-if not results:
-    gray = cv2.cvtColor(center, cv2.COLOR_BGR2GRAY)
-    _, otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    results = decode(Image.fromarray(otsu))
-
-if not results:
-    raise ValueError("无法解码二维码，请尝试提供更清晰的图片")
-
-url = results[0].data.decode('utf-8')
-# 得到形如 https://dppt.xxx.gov.cn:8443/v/2_xxx 的URL
-print(f"解码URL: {url}")
-```
+解码得到形如 `https://dppt.xxx.gov.cn:8443/v/2_{发票号码}_{时间戳}` 的URL。
 
 ### 第2步：浏览器打开页面
 
-使用浏览器导航到解码出的URL。页面会自动重定向到 `qrcode` 页面，显示发票详情和下载按钮。
+使用浏览器（Playwright）导航到解码出的URL。页面会自动重定向到 `qrcode` 页面，显示发票详情和三个下载按钮（`PDF下载`、`OFD下载`、`XML下载`）。**只需下载PDF**。
 
 ```
 URL格式：https://dppt.sichuan.chinatax.gov.cn:8443/v/2_{发票号码}_{时间戳}
 重定向后：https://dppt.sichuan.chinatax.gov.cn:8443/qrcode?cs=2_{发票号码}_{时间戳}&jrxt=EWMJF
 ```
 
-页面加载后显示三个下载按钮：`PDF下载`、`OFD下载`、`XML下载`。**只需点击PDF下载**。
+> 各省平台域名可能不同（`dppt.{省}.chinatax.gov.cn`），以实际解码URL为准。
 
-### 第3步：拦截下载链接（关键！）
+### 第3步：提取发票元信息与校验码（关键数据源）
 
-点击下载按钮不会直接触发浏览器下载，而是通过JS动态创建 `<a>` 标签触发。需要在**点击之前**注入拦截脚本：
+从页面 Vue 组件中提取发票信息和下载所需的 `formData`。这一步的数据是后续触发下载的必要参数。
 
 ```javascript
-// 拦截 HTMLAnchorElement.prototype.click 捕获下载URL
-var origClick = HTMLAnchorElement.prototype.click;
-var clickedUrls = [];
-HTMLAnchorElement.prototype.click = function() {
-    clickedUrls.push({href: this.href, download: this.download, time: Date.now()});
-    return origClick.apply(this, arguments);
-};
-window.__clickedUrls = clickedUrls;
+// 在浏览器 evaluate 中执行：
+var div = document.querySelector('.qrcode-box.g-layout-main__content-section');
+var vm = div.__vue__;
+var data = vm.$data || vm._data;
+// 返回 data.formData，包含：
+//   fphm: 发票号码
+//   jym: 校验码（下载API必填）
+//   kprq: 开票日期（yyyy-MM-dd HH:mm:ss）
+//   jshj: 价税合计
+//   gmfmc: 购买方名称 / gmfnsrsbh: 购买方税号
+//   xsfmc: 销售方名称 / xsfnsrsbh: 销售方税号
+//   fppz: 发票类型
 ```
 
-### 第4步：点击PDF下载按钮并捕获URL
+同时从浏览器读取 Cookie（后续下载必需）：
 
-在注入拦截后，点击"PDF下载"按钮，然后读取 `window.__clickedUrls` 获取下载URL。
+```javascript
+document.cookie
+// 例：COOKIE_NAME_1_PLACEHOLDER=xxx; COOKIE_NAME_2_PLACEHOLDER=xxx
+```
+
+### 第4步：触发下载（关键！用组件方法而非click拦截）
+
+**不要依赖拦截 `<a>.click()`**（实战验证返回空数组）。正确做法是：向上遍历 Vue 组件链，定位到包含 `openEwmjf`（或 `openEwmjfPDF`）方法的组件，然后**在该组件上下文直接调用此方法**，携带第3步的 `formData`。
+
+```javascript
+// 在浏览器 evaluate 中执行：
+// 1) 找到目标组件（含 openEwmjf 方法）
+var div = document.querySelector('.qrcode-box.g-layout-main__content-section');
+var vm = div.__vue__;
+var target = vm;
+var depth = 0;
+while (target && !(target.openEwmjf || target.openEwmjfPDF) && depth < 12) {
+    target = target.$parent;
+    depth++;
+}
+// 2) 从 formData 取参数
+var f = vm.formData || vm.$data.formData;
+// 3) 直接调用触发下载（Wjgs=PDF 仅下载PDF）
+var r = target.openEwmjf({
+    Wjgs: 'PDF',
+    Jym: String(f.jym),
+    Fphm: String(f.fphm),
+    Kprq: String(f.kprq).replace(/[-: ]/g,'').slice(0,14), // yyyyMMddHHmmss
+    Czsj: Date.now(),
+    fileName: 'invoice_' + f.fphm + '.pdf',
+    timeStampId: Date.now() + Math.floor(Math.random()*100)
+});
+```
+
+> 若方法名在不同页面有变体（`openEwmjf` / `openEwmjfPDF`），遍历时两种都判断。触发成功后真实下载请求会发出。
+
+### 第5步：从 network_requests 捕获真实下载URL
+
+触发后立即读取浏览器网络请求，找到 `exportDzfpwjEwm`（PDF导出端点）的请求并提取完整URL。
+
+```javascript
+// 触发后调用浏览器 network_requests 工具，过滤出：
+// /kpfw/fpjfzz/v1/exportDzfpwjEwm?Wjgs=PDF&Jym=...&Fphm=...&Kprq=...&Czsj=...&fileName=...&timeStampId=...
+```
 
 **下载URL格式：**
 
 ```
-https://dppt.sichuan.chinatax.gov.cn:8443/kpfw/fpjfzz/v1/exportDzfpwjEwm?Wjgs=PDF&Jym={校验码}&Fphm={发票号码}&Kprq={开票日期}&Czsj={时间戳}&fileName=&timeStampId={时间戳ID}
+https://dppt.sichuan.chinatax.gov.cn:8443/kpfw/fpjfzz/v1/exportDzfpwjEwm?Wjgs=PDF&Jym={校验码}&Fphm={发票号码}&Kprq={yyyyMMddHHmmss}&Czsj={时间戳}&fileName={文件名}&timeStampId={时间戳ID}
 ```
 
-参数说明：
-- `Wjgs`：文件格式，固定为 PDF
-- `Jym`：校验码
-- `Fphm`：发票号码
-- `Kprq`：开票日期（格式 `yyyyMMddHHmmss`）
-- `Czsj` 和 `timeStampId`：从拦截到的URL中获取即可
+> 页面 JS 主包（混淆）中可 grep 到端点系列：`exportDzfpwjEwm`(PDF)、`exportOfdwj`、`exportXmlwj`、`exportPdfwj`、`exportPrePdfwj` 等。若直接抓 URL 失败，可下载主JS包后 grep 这些端点做备选。
 
-### 第5步：用Python下载PDF文件
+### 第6步：用Python下载PDF文件
 
-拿到下载URL后，使用 `requests` 库下载PDF文件。**必须携带浏览器Cookie**。
+拿到下载URL后，使用 `requests` 库下载PDF。**必须携带第3步读到的浏览器Cookie**（`verify=False`）。
 
-使用 `scripts/download_pdf.py` 脚本或参考以下代码：
+使用 `scripts/download_pdf.py`：
 
-```python
-import requests
-import urllib3
-urllib3.disable_warnings()
-
-cookies = {
-    "_preview_auth": "从浏览器获取",
-    "COOKIE_NAME_1_PLACEHOLDER": "从浏览器获取",
-    "COOKIE_NAME_2_PLACEHOLDER": "从浏览器获取"
-}
-
-headers = {
-    "User-Agent": "Mozilla/5.0",
-    "Accept": "*/*",
-    "Referer": "https://dppt.sichuan.chinatax.gov.cn:8443/qrcode?cs=..."
-}
-
-# 仅下载PDF格式
-resp = requests.get(captured_url, cookies=cookies, headers=headers, verify=False, timeout=30)
-
-if resp.status_code == 200 and len(resp.content) > 500:
-    filepath = f"/workspace/发票_{fphm}.pdf"
-    with open(filepath, "wb") as f:
-        f.write(resp.content)
-    print(f"PDF下载成功: {filepath} ({len(resp.content)} bytes)")
-else:
-    print(f"PDF下载失败: HTTP {resp.status_code}, 大小 {len(resp.content)} bytes")
+```bash
+python3 download_pdf.py "<下载URL>" {fphm} \
+  --cookies "COOKIE_NAME_1_PLACEHOLDER=xxx; COOKIE_NAME_2_PLACEHOLDER=xxx" \
+  --referer "https://dppt.sichuan.chinatax.gov.cn:8443/qrcode?cs=..." \
+  --output-dir "OUTPUT_PATH_PLACEHOLDER"
 ```
 
-### 第6步：提取发票元信息
+下载后**必须校验**：文件头为 `%PDF-`、文件尾为 `%%EOF`。
 
-从页面Vue组件中提取发票信息：
+### 第7步：按元信息重命名并归档到工作区
 
-```javascript
-var div = document.querySelector('.qrcode-box.g-layout-main__content-section');
-var vm = div.__vue__;
-var data = vm.$data || vm._data;
-// data.formData 包含：
-//   fphm: 发票号码
-//   jym: 校验码
-//   kprq: 开票日期
-//   jshj: 价税合计
-//   gmfnsrsbh: 购买方税号
-//   gmfmc: 购买方名称
-//   xsfnsrsbh: 销售方税号
-//   xsfmc: 销售方名称
-//   fppz: 发票类型
+按发票元信息重命名，并保存到**工作区**文件夹（`OUTPUT_PATH_PLACEHOLDER`）：
+
+```
+电子发票_{fphm}_{购买方名称}_{金额}元.pdf
+例：电子发票_INVOICE_NUMBER_PLACEHOLDER_BUYER_COMPANY_PLACEHOLDERAMOUNT_PLACEHOLDER元.pdf
 ```
 
-## 关键注意事项
+## 关键注意事项（实战教训）
 
-1. **二维码解码**：直接解码可能失败，务必使用 Otsu 二值化预处理
-2. **拦截时机**：必须在点击按钮**之前**注入 `HTMLAnchorElement.prototype.click` 拦截
-3. **Cookie必需**：下载API需要登录态，必须携带浏览器的Cookie
-4. **仅下载PDF**：只下载PDF格式，无需下载OFD和XML，避免不必要的请求
-5. **文件验证**：PDF文件以 `%PDF-` 开头，下载后必须验证
-6. **不要用WebFetch**：页面是SPA需要JS渲染，必须用浏览器打开
+1. **❌ 不要用 `<a>.click()` 拦截**：该平台下载由 Vue 组件方法 `openEwmjf` 触发，拦截 click 会返回空数组。必须用"组件方法直接调用 + network_requests 捕获"。
+2. **二维码解码**：直接解码可能失败，务必使用 Otsu 二值化预处理。
+3. **Cookie 必需**：下载API需要登录态，必须携带 `document.cookie` 读到的非 httpOnly cookie（如 `COOKIE_NAME_1_PLACEHOLDER`、`COOKIE_NAME_2_PLACEHOLDER`）。
+4. **仅下载PDF**：只下载PDF格式（`Wjgs=PDF`），不下载OFD和XML。
+5. **文件验证**：PDF以 `%PDF-` 开头、`%%EOF` 结尾，下载后必须验证。
+6. **不要用 WebFetch**：页面是SPA需JS渲染，必须用浏览器打开。
+7. **输出路径**：统一保存到工作区 `OUTPUT_PATH_PLACEHOLDER/`。
+8. **页面JS混淆**：直接读源码不可行，需下载主JS包后 grep 关键端点字符串。
 
 ## 完成输出格式
 
@@ -178,7 +162,7 @@ var data = vm.$data || vm._data;
 
 | 格式 | 文件名 | 大小 | 状态 |
 |:----:|--------|:----:|:----:|
-| PDF | 发票_{fphm}.pdf | xxx KB | 有效 |
+| PDF | 电子发票_{fphm}_{购买方}_{金额}元.pdf | xxx KB | 有效 |
 
 | 项目 | 内容 |
 |:----|:----|
@@ -191,6 +175,6 @@ var data = vm.$data || vm._data;
 
 ## 参考
 
-- `scripts/decode_qrcode.py` - 二维码解码脚本
-- `scripts/download_pdf.py` - PDF下载脚本
-- `references/intercept.js` - 浏览器下载链接拦截脚本
+- `scripts/decode_qrcode.py` - 二维码解码脚本（中心裁剪 + Otsu二值化）
+- `scripts/download_pdf.py` - PDF下载脚本（携带Cookie）
+- `references/trigger_download.js` - Vue组件方法触发下载脚本
