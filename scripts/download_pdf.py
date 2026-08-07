@@ -4,7 +4,7 @@
 根据拦截到的下载URL，携带Cookie下载PDF文件。
 
 用法：
-    python3 download_pdf.py <captured_url> <fphm> --cookies "_preview_auth=xxx; COOKIE_NAME_1_PLACEHOLDER=xxx; COOKIE_NAME_2_PLACEHOLDER=xxx"
+    python3 download_pdf.py <captured_url> <fphm> --cookies "COOKIE_NAME_1_PLACEHOLDER=xxx; COOKIE_NAME_2_PLACEHOLDER=xxx" --output-dir "工作区路径"
 """
 
 import sys
@@ -59,7 +59,7 @@ def main():
     parser.add_argument('fphm', help='发票号码')
     parser.add_argument('--cookies', help='Cookie字符串，格式: "k=v; k2=v2"')
     parser.add_argument('--referer', help='Referer URL')
-    parser.add_argument('--output-dir', default='/workspace', help='保存目录')
+    parser.add_argument('--output-dir', default='OUTPUT_PATH_PLACEHOLDER', help='保存目录（默认工作区）')
 
     args = parser.parse_args()
 
