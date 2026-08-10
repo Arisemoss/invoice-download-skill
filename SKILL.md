@@ -1,16 +1,19 @@
 ---
 name: invoice-download
 description: >
-  从国家税务总局电子发票服务平台的二维码交付页面自动下载电子发票PDF文件。
+  从国家税务总局电子发票服务平台的二维码交付页面自动下载电子发票PDF文件（支持多省份）。
   处理二维码解码、Vue组件方法触发下载、network_requests捕获URL、提取发票元信息等全流程。
   当用户提供包含发票二维码的截图并需要下载PDF发票时使用此技能。
+  支持省份：四川、广东、浙江、北京、上海、江苏、山东等。
 ---
 
-# 电子发票 PDF 下载 Agent
+# 电子发票 PDF 下载 Agent（支持多省份）
 
 从国家税务总局电子发票服务平台的二维码交付页面**仅下载电子发票PDF文件**（不下载OFD和XML格式）。
 
 > ⚠️ **本文档基于实战经验优化（2026-08）**：页面 JS 经过混淆，下载按钮由 Vue 组件方法 `openEwmjf` 触发，**拦截 `<a>.click()` 无法捕获 URL**。请严格按照下述"组件方法触发 + network_requests 捕获"流程操作。
+
+> 📍 **多省份支持**：本技能支持全国多个省份的税务电子发票平台，包括四川、广东、浙江、北京、上海、江苏、山东等。系统会自动识别省份并使用对应配置。
 
 ## 触发时机
 
@@ -18,12 +21,13 @@ description: >
 
 ## 整体流程
 
-### 第1步：解析二维码获取URL
+### 第1步：解析二维码获取URL（支持多省份）
 
 用户会提供一张包含发票二维码的截图。需要执行以下操作：
 
 1. 使用 `pyzbar` 库解码二维码
 2. 如果直接解码失败，对图片做预处理（裁剪中心区域 + Otsu二值化）
+3. 自动识别省份并加载对应配置
 
 **前置依赖安装：**
 
@@ -34,18 +38,38 @@ pip install pyzbar opencv-python-headless Pillow requests --break-system-package
 
 **QR解码：** 使用 `scripts/decode_qrcode.py <图片路径>`，或参考 `scripts/decode_qrcode.py` 中的逻辑（中心裁剪 + Otsu 二值化）。
 
-解码得到形如 `https://dppt.xxx.gov.cn:8443/v/2_{发票号码}_{时间戳}` 的URL。
+**多省份支持：**
+- 脚本会自动从URL中识别省份（四川、广东、浙江、北京、上海、江苏、山东等）
+- 支持手动指定省份：`python3 decode_qrcode.py <图片路径> --province sichuan`
+- 省份配置存储在 `references/province_config.json`
 
-### 第2步：浏览器打开页面
+解码得到形如 `https://dppt.{省份}.chinatax.gov.cn:8443/v/2_{发票号码}_{时间戳}` 的URL。
+
+**支持的省份域名格式：**
+- 四川：`dppt.sichuan.chinatax.gov.cn:8443`
+- 广东：`dppt.guangdong.chinatax.gov.cn:8443`
+- 浙江：`dppt.zhejiang.chinatax.gov.cn:8443`
+- 北京：`dppt.beijing.chinatax.gov.cn:8443`
+- 上海：`dppt.shanghai.chinatax.gov.cn:8443`
+- 江苏：`dppt.jiangsu.chinatax.gov.cn:8443`
+- 山东：`dppt.shandong.chinatax.gov.cn:8443`
+
+### 第2步：浏览器打开页面（多省份通用）
 
 使用浏览器（Playwright）导航到解码出的URL。页面会自动重定向到 `qrcode` 页面，显示发票详情和三个下载按钮（`PDF下载`、`OFD下载`、`XML下载`）。**只需下载PDF**。
 
+**多省份URL格式：**
 ```
-URL格式：https://dppt.sichuan.chinatax.gov.cn:8443/v/2_{发票号码}_{时间戳}
-重定向后：https://dppt.sichuan.chinatax.gov.cn:8443/qrcode?cs=2_{发票号码}_{时间戳}&jrxt=EWMJF
+https://dppt.{省份}.chinatax.gov.cn:8443/v/2_{发票号码}_{时间戳}
+重定向后：https://dppt.{省份}.chinatax.gov.cn:8443/qrcode?cs=2_{发票号码}_{时间戳}&jrxt=EWMJF
 ```
 
-> 各省平台域名可能不同（`dppt.{省}.chinatax.gov.cn`），以实际解码URL为准。
+**示例：**
+- 四川：`https://dppt.sichuan.chinatax.gov.cn:8443/v/2_INVOICE_NUMBER_PLACEHOLDER_TIMESTAMP_PLACEHOLDER`
+- 广东：`https://dppt.guangdong.chinatax.gov.cn:8443/v/2_INVOICE_NUMBER_PLACEHOLDER_TIMESTAMP_PLACEHOLDER`
+- 浙江：`https://dppt.zhejiang.chinatax.gov.cn:8443/v/2_INVOICE_NUMBER_PLACEHOLDER_TIMESTAMP_PLACEHOLDER`
+
+> 📍 **省份自动识别**：系统会从URL中自动识别省份（如 `dppt.sichuan.chinatax.gov.cn` → 四川），并加载对应配置。无需手动指定。
 
 ### 第3步：提取发票元信息与校验码（关键数据源）
 
@@ -104,7 +128,7 @@ var r = target.openEwmjf({
 
 > 若方法名在不同页面有变体（`openEwmjf` / `openEwmjfPDF`），遍历时两种都判断。触发成功后真实下载请求会发出。
 
-### 第5步：从 network_requests 捕获真实下载URL
+### 第5步：从 network_requests 捕获真实下载URL（多省份通用）
 
 触发后立即读取浏览器网络请求，找到 `exportDzfpwjEwm`（PDF导出端点）的请求并提取完整URL。
 
@@ -113,15 +137,22 @@ var r = target.openEwmjf({
 // /kpfw/fpjfzz/v1/exportDzfpwjEwm?Wjgs=PDF&Jym=...&Fphm=...&Kprq=...&Czsj=...&fileName=...&timeStampId=...
 ```
 
-**下载URL格式：**
+**多省份下载URL格式：**
 
 ```
-https://dppt.sichuan.chinatax.gov.cn:8443/kpfw/fpjfzz/v1/exportDzfpwjEwm?Wjgs=PDF&Jym={校验码}&Fphm={发票号码}&Kprq={yyyyMMddHHmmss}&Czsj={时间戳}&fileName={文件名}&timeStampId={时间戳ID}
+https://dppt.{省份}.chinatax.gov.cn:8443/kpfw/fpjfzz/v1/exportDzfpwjEwm?Wjgs=PDF&Jym={校验码}&Fphm={发票号码}&Kprq={yyyyMMddHHmmss}&Czsj={时间戳}&fileName={文件名}&timeStampId={时间戳ID}
 ```
+
+**示例：**
+- 四川：`https://dppt.sichuan.chinatax.gov.cn:8443/kpfw/fpjfzz/v1/exportDzfpwjEwm?Wjgs=PDF&Jym=VALIDATION_CODE_PLACEHOLDER&Fphm=INVOICE_NUMBER_PLACEHOLDER&Kprq=INVOICE_DATE_PLACEHOLDER&Czsj=TIMESTAMP_PLACEHOLDER&fileName=invoice_INVOICE_NUMBER_PLACEHOLDER.pdf&timeStampId=TIMESTAMP_PLACEHOLDER`
+- 广东：`https://dppt.guangdong.chinatax.gov.cn:8443/kpfw/fpjfzz/v1/exportDzfpwjEwm?Wjgs=PDF&Jym=VALIDATION_CODE_PLACEHOLDER&Fphm=INVOICE_NUMBER_PLACEHOLDER&Kprq=INVOICE_DATE_PLACEHOLDER&Czsj=TIMESTAMP_PLACEHOLDER&fileName=invoice_INVOICE_NUMBER_PLACEHOLDER.pdf&timeStampId=TIMESTAMP_PLACEHOLDER`
+- 浙江：`https://dppt.zhejiang.chinatax.gov.cn:8443/kpfw/fpjfzz/v1/exportDzfpwjEwm?Wjgs=PDF&Jym=VALIDATION_CODE_PLACEHOLDER&Fphm=INVOICE_NUMBER_PLACEHOLDER&Kprq=INVOICE_DATE_PLACEHOLDER&Czsj=TIMESTAMP_PLACEHOLDER&fileName=invoice_INVOICE_NUMBER_PLACEHOLDER.pdf&timeStampId=TIMESTAMP_PLACEHOLDER`
+
+> 📍 **省份自动匹配**：系统会自动识别URL中的省份，并使用对应的下载端点。所有省份使用相同的下载端点路径 `/kpfw/fpjfzz/v1/exportDzfpwjEwm`，但域名不同。
 
 > 页面 JS 主包（混淆）中可 grep 到端点系列：`exportDzfpwjEwm`(PDF)、`exportOfdwj`、`exportXmlwj`、`exportPdfwj`、`exportPrePdfwj` 等。若直接抓 URL 失败，可下载主JS包后 grep 这些端点做备选。
 
-### 第6步：用Python下载PDF文件
+### 第6步：用Python下载PDF文件（多省份通用）
 
 拿到下载URL后，使用 `requests` 库下载PDF。**必须携带第3步读到的浏览器Cookie**（`verify=False`）。
 
@@ -130,11 +161,28 @@ https://dppt.sichuan.chinatax.gov.cn:8443/kpfw/fpjfzz/v1/exportDzfpwjEwm?Wjgs=PD
 ```bash
 python3 download_pdf.py "<下载URL>" {fphm} \
   --cookies "COOKIE_NAME_1_PLACEHOLDER=xxx; COOKIE_NAME_2_PLACEHOLDER=xxx" \
+  --referer "https://dppt.{省份}.chinatax.gov.cn:8443/qrcode?cs=..." \
+  --output-dir "OUTPUT_PATH_PLACEHOLDER"
+```
+
+**多省份下载示例：**
+```bash
+# 四川
+python3 download_pdf.py "https://dppt.sichuan.chinatax.gov.cn:8443/kpfw/fpjfzz/v1/exportDzfpwjEwm?..." INVOICE_NUMBER_PLACEHOLDER \
+  --cookies "COOKIE_NAME_1_PLACEHOLDER=xxx; COOKIE_NAME_2_PLACEHOLDER=xxx" \
   --referer "https://dppt.sichuan.chinatax.gov.cn:8443/qrcode?cs=..." \
+  --output-dir "OUTPUT_PATH_PLACEHOLDER"
+
+# 广东
+python3 download_pdf.py "https://dppt.guangdong.chinatax.gov.cn:8443/kpfw/fpjfzz/v1/exportDzfpwjEwm?..." INVOICE_NUMBER_PLACEHOLDER \
+  --cookies "COOKIE_NAME_1_PLACEHOLDER=xxx; COOKIE_NAME_2_PLACEHOLDER=xxx" \
+  --referer "https://dppt.guangdong.chinatax.gov.cn:8443/qrcode?cs=..." \
   --output-dir "OUTPUT_PATH_PLACEHOLDER"
 ```
 
 下载后**必须校验**：文件头为 `%PDF-`、文件尾为 `%%EOF`。
+
+> 📍 **省份自动匹配**：系统会自动识别下载URL中的省份，并使用对应的 Referer 头。所有省份使用相同的下载脚本，只需替换URL中的省份域名即可。
 
 ### 第7步：按元信息重命名并归档到工作区
 
@@ -155,6 +203,8 @@ python3 download_pdf.py "<下载URL>" {fphm} \
 6. **不要用 WebFetch**：页面是SPA需JS渲染，必须用浏览器打开。
 7. **输出路径**：统一保存到工作区 `OUTPUT_PATH_PLACEHOLDER/`。
 8. **页面JS混淆**：直接读源码不可行，需下载主JS包后 grep 关键端点字符串。
+9. **多省份支持**：系统会自动从URL识别省份，无需手动指定。省份配置存储在 `references/province_config.json`。
+10. **省份扩展**：如需添加新省份，只需在 `province_config.json` 中添加对应配置即可。
 
 ## 完成输出格式
 
