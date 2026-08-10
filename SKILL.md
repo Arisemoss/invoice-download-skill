@@ -225,6 +225,7 @@ python3 download_pdf.py "https://dppt.guangdong.chinatax.gov.cn:8443/kpfw/fpjfzz
 
 ## 参考
 
-- `scripts/decode_qrcode.py` - 二维码解码脚本（中心裁剪 + Otsu二值化）
+- `scripts/decode_qrcode.py` - 二维码解码脚本（支持多省份识别，中心裁剪 + Otsu二值化）
 - `scripts/download_pdf.py` - PDF下载脚本（携带Cookie）
 - `references/trigger_download.js` - Vue组件方法触发下载脚本
+- `references/province_config.json` - 多省份配置文件（四川、广东、浙江、北京、上海、江苏、山东）
