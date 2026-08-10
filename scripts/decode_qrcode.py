@@ -147,13 +147,15 @@ if __name__ == "__main__":
         print(f"解码URL: {url}")
         
         # 识别省份
+        config = load_province_config()
         if province_code:
-            config = load_province_config()
             if province_code in config["provinces"]:
                 province_info = config["provinces"][province_code]
                 print(f"省份: {province_info['name']} ({province_code})")
             else:
-                print(f"未知省份代码: {province_code}")
+                print(f"未知省份代码: {province_code}，使用默认省份")
+                province_code = config["default_province"]
+                province_info = config["provinces"][province_code]
         else:
             province_code, province_info = identify_province(url)
             print(f"识别省份: {province_info['name']} ({province_code})")
@@ -169,6 +171,7 @@ if __name__ == "__main__":
             "url": url,
             "province": province_code,
             "province_name": province_info["name"],
+            "download_endpoint": province_info.get("download_endpoint", "/kpfw/fpjfzz/v1/exportDzfpwjEwm"),
             "invoice_info": invoice_info
         }
         print(f"\nJSON结果: {json.dumps(result, ensure_ascii=False, indent=2)}")
