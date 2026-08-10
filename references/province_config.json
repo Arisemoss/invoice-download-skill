@@ -1,0 +1,76 @@
+{
+  "provinces": {
+    "sichuan": {
+      "name": "四川",
+      "domain": "dppt.sichuan.chinatax.gov.cn",
+      "port": 8443,
+      "url_pattern": "https://dppt.sichuan.chinatax.gov.cn:8443/v/2_{fphm}_{timestamp}",
+      "redirect_pattern": "https://dppt.sichuan.chinatax.gov.cn:8443/qrcode?cs=2_{fphm}_{timestamp}&jrxt=EWMJF",
+      "download_endpoint": "/kpfw/fpjfzz/v1/exportDzfpwjEwm",
+      "notes": "四川税务电子发票服务平台，使用Vue组件openEwmjf方法触发下载"
+    },
+    "guangdong": {
+      "name": "广东",
+      "domain": "dppt.guangdong.chinatax.gov.cn",
+      "port": 8443,
+      "url_pattern": "https://dppt.guangdong.chinatax.gov.cn:8443/v/2_{fphm}_{timestamp}",
+      "redirect_pattern": "https://dppt.guangdong.chinatax.gov.cn:8443/qrcode?cs=2_{fphm}_{timestamp}&jrxt=EWMJF",
+      "download_endpoint": "/kpfw/fpjfzz/v1/exportDzfpwjEwm",
+      "notes": "广东税务电子发票服务平台，URL模式与四川类似"
+    },
+    "zhejiang": {
+      "name": "浙江",
+      "domain": "dppt.zhejiang.chinatax.gov.cn",
+      "port": 8443,
+      "url_pattern": "https://dppt.zhejiang.chinatax.gov.cn:8443/v/2_{fphm}_{timestamp}",
+      "redirect_pattern": "https://dppt.zhejiang.chinatax.gov.cn:8443/qrcode?cs=2_{fphm}_{timestamp}&jrxt=EWMJF",
+      "download_endpoint": "/kpfw/fpjfzz/v1/exportDzfpwjEwm",
+      "notes": "浙江税务电子发票服务平台"
+    },
+    "beijing": {
+      "name": "北京",
+      "domain": "dppt.beijing.chinatax.gov.cn",
+      "port": 8443,
+      "url_pattern": "https://dppt.beijing.chinatax.gov.cn:8443/v/2_{fphm}_{timestamp}",
+      "redirect_pattern": "https://dppt.beijing.chinatax.gov.cn:8443/qrcode?cs=2_{fphm}_{timestamp}&jrxt=EWMJF",
+      "download_endpoint": "/kpfw/fpjfzz/v1/exportDzfpwjEwm",
+      "notes": "北京税务电子发票服务平台"
+    },
+    "shanghai": {
+      "name": "上海",
+      "domain": "dppt.shanghai.chinatax.gov.cn",
+      "port": 8443,
+      "url_pattern": "https://dppt.shanghai.chinatax.gov.cn:8443/v/2_{fphm}_{timestamp}",
+      "redirect_pattern": "https://dppt.shanghai.chinatax.gov.cn:8443/qrcode?cs=2_{fphm}_{timestamp}&jrxt=EWMJF",
+      "download_endpoint": "/kpfw/fpjfzz/v1/exportDzfpwjEwm",
+      "notes": "上海税务电子发票服务平台"
+    },
+    "jiangsu": {
+      "name": "江苏",
+      "domain": "dppt.jiangsu.chinatax.gov.cn",
+      "port": 8443,
+      "url_pattern": "https://dppt.jiangsu.chinatax.gov.cn:8443/v/2_{fphm}_{timestamp}",
+      "redirect_pattern": "https://dppt.jiangsu.chinatax.gov.cn:8443/qrcode?cs=2_{fphm}_{timestamp}&jrxt=EWMJF",
+      "download_endpoint": "/kpfw/fpjfzz/v1/exportDzfpwjEwm",
+      "notes": "江苏税务电子发票服务平台"
+    },
+    "shandong": {
+      "name": "山东",
+      "domain": "dppt.shandong.chinatax.gov.cn",
+      "port": 8443,
+      "url_pattern": "https://dppt.shandong.chinatax.gov.cn:8443/v/2_{fphm}_{timestamp}",
+      "redirect_pattern": "https://dppt.shandong.chinatax.gov.cn:8443/qrcode?cs=2_{fphm}_{timestamp}&jrxt=EWMJF",
+      "download_endpoint": "/kpfw/fpjfzz/v1/exportDzfpwjEwm",
+      "notes": "山东税务电子发票服务平台"
+    }
+  },
+  "default_province": "sichuan",
+  "supported_formats": ["PDF", "OFD", "XML"],
+  "default_format": "PDF",
+  "common_notes": {
+    "download_method": "Vue组件方法openEwmjf触发",
+    "cookie_requirement": "需要浏览器Cookie",
+    "file_validation": "PDF文件头%PDF-，文件尾%%EOF",
+    "output_path": "OUTPUT_PATH_PLACEHOLDER"
+  }
+}
